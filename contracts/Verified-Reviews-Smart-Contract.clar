@@ -6,6 +6,9 @@
 (define-constant ERR-INVALID-PRODUCT-ID (err u104))
 (define-constant ERR-REVIEW-TOO-LONG (err u105))
 
+(define-constant ERR-ALREADY-VOTED (err u106))
+(define-constant ERR-CANNOT-VOTE-OWN-REVIEW (err u107))
+
 (define-data-var next-review-id uint u1)
 (define-data-var contract-paused bool false)
 
@@ -199,4 +202,63 @@
             acc)
         acc
     )
+)
+
+
+
+(define-map review-votes
+    {review-id: uint, voter: principal}
+    bool
+)
+
+(define-map review-helpfulness
+    uint
+    {
+        helpful-votes: uint,
+        unhelpful-votes: uint,
+        helpfulness-ratio: uint
+    }
+)
+
+(define-public (vote-review-helpfulness (review-id uint) (is-helpful bool))
+    (let ((review (unwrap! (map-get? reviews review-id) ERR-REVIEW-NOT-FOUND))
+          (voter tx-sender))
+        (asserts! (not (var-get contract-paused)) ERR-NOT-AUTHORIZED)
+        (asserts! (not (is-eq voter (get reviewer review))) ERR-CANNOT-VOTE-OWN-REVIEW)
+        (asserts! (is-none (map-get? review-votes {review-id: review-id, voter: voter})) ERR-ALREADY-VOTED)
+        
+        (map-set review-votes {review-id: review-id, voter: voter} is-helpful)
+        
+        (let ((current-helpfulness (default-to {helpful-votes: u0, unhelpful-votes: u0, helpfulness-ratio: u0}
+                                              (map-get? review-helpfulness review-id))))
+            (let ((new-helpful (if is-helpful 
+                                 (+ (get helpful-votes current-helpfulness) u1)
+                                 (get helpful-votes current-helpfulness)))
+                  (new-unhelpful (if is-helpful 
+                                   (get unhelpful-votes current-helpfulness)
+                                   (+ (get unhelpful-votes current-helpfulness) u1))))
+                (let ((total-votes (+ new-helpful new-unhelpful))
+                      (new-ratio (if (> total-votes u0) (/ (* new-helpful u100) total-votes) u0)))
+                    (map-set review-helpfulness review-id {
+                        helpful-votes: new-helpful,
+                        unhelpful-votes: new-unhelpful,
+                        helpfulness-ratio: new-ratio
+                    })
+                    (ok new-ratio)
+                )
+            )
+        )
+    )
+)
+
+(define-read-only (get-review-helpfulness (review-id uint))
+    (map-get? review-helpfulness review-id)
+)
+
+(define-read-only (has-user-voted-on-review (review-id uint) (user principal))
+    (is-some (map-get? review-votes {review-id: review-id, voter: user}))
+)
+
+(define-read-only (get-user-vote-on-review (review-id uint) (user principal))
+    (map-get? review-votes {review-id: review-id, voter: user})
 )
