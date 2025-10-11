@@ -9,6 +9,10 @@
 (define-constant ERR-ALREADY-VOTED (err u106))
 (define-constant ERR-CANNOT-VOTE-OWN-REVIEW (err u107))
 
+(define-constant BASE-REVIEW-REWARD u10)
+(define-constant HELPFUL-REVIEW-BONUS u5)
+(define-constant ERR-INSUFFICIENT-BALANCE (err u108))
+
 (define-data-var next-review-id uint u1)
 (define-data-var contract-paused bool false)
 
@@ -261,4 +265,46 @@
 
 (define-read-only (get-user-vote-on-review (review-id uint) (user principal))
     (map-get? review-votes {review-id: review-id, voter: user})
+)
+
+
+(define-map user-reward-balance
+    principal
+    uint
+)
+
+(define-map product-reputation
+    (string-ascii 64)
+    uint
+)
+
+(define-private (distribute-review-reward (reviewer principal))
+    (let ((current-balance (default-to u0 (map-get? user-reward-balance reviewer))))
+        (map-set user-reward-balance reviewer (+ current-balance BASE-REVIEW-REWARD))
+        BASE-REVIEW-REWARD
+    )
+)
+
+(define-private (award-helpfulness-bonus (review-id uint))
+    (match (map-get? reviews review-id)
+        review (let ((reviewer (get reviewer review))
+                    (current-balance (default-to u0 (map-get? user-reward-balance reviewer))))
+                (map-set user-reward-balance reviewer (+ current-balance HELPFUL-REVIEW-BONUS))
+                HELPFUL-REVIEW-BONUS)
+        u0
+    )
+)
+
+(define-private (update-product-reputation (product-id (string-ascii 64)))
+    (let ((current-rep (default-to u0 (map-get? product-reputation product-id))))
+        (map-set product-reputation product-id (+ current-rep u1))
+    )
+)
+
+(define-read-only (get-user-reward-balance (user principal))
+    (default-to u0 (map-get? user-reward-balance user))
+)
+
+(define-read-only (get-product-reputation (product-id (string-ascii 64)))
+    (default-to u0 (map-get? product-reputation product-id))
 )
