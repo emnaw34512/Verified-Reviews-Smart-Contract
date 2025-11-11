@@ -13,6 +13,10 @@
 (define-constant HELPFUL-REVIEW-BONUS u5)
 (define-constant ERR-INSUFFICIENT-BALANCE (err u108))
 
+(define-constant ERR-NOT-PRODUCT-OWNER (err u109))
+(define-constant ERR-RESPONSE-EXISTS (err u110))
+(define-constant ERR-RESPONSE-TOO-LONG (err u111))
+
 (define-data-var next-review-id uint u1)
 (define-data-var contract-paused bool false)
 
@@ -307,4 +311,62 @@
 
 (define-read-only (get-product-reputation (product-id (string-ascii 64)))
     (default-to u0 (map-get? product-reputation product-id))
+)
+
+
+
+(define-map product-owners
+    (string-ascii 64)
+    principal
+)
+
+(define-map review-responses
+    uint
+    {
+        responder: principal,
+        response-text: (string-utf8 500),
+        timestamp: uint
+    }
+)
+
+(define-public (register-as-product-owner (product-id (string-ascii 64)))
+    (begin
+        (asserts! (> (len product-id) u0) ERR-INVALID-PRODUCT-ID)
+        (asserts! (is-none (map-get? product-owners product-id)) ERR-NOT-AUTHORIZED)
+        (map-set product-owners product-id tx-sender)
+        (ok true)
+    )
+)
+
+(define-public (respond-to-review (review-id uint) (response-text (string-utf8 500)))
+    (let ((review (unwrap! (map-get? reviews review-id) ERR-REVIEW-NOT-FOUND))
+          (product-id (get product-id (unwrap! (map-get? reviews review-id) ERR-REVIEW-NOT-FOUND)))
+          (owner (unwrap! (map-get? product-owners product-id) ERR-NOT-PRODUCT-OWNER)))
+        (asserts! (not (var-get contract-paused)) ERR-NOT-AUTHORIZED)
+        (asserts! (is-eq tx-sender owner) ERR-NOT-PRODUCT-OWNER)
+        (asserts! (<= (len response-text) u500) ERR-RESPONSE-TOO-LONG)
+        (asserts! (is-none (map-get? review-responses review-id)) ERR-RESPONSE-EXISTS)
+        
+        (map-set review-responses review-id {
+            responder: tx-sender,
+            response-text: response-text,
+            timestamp: (unwrap-panic (get-stacks-block-info? time (- stacks-block-height u1)))
+        })
+        (ok true)
+    )
+)
+
+(define-read-only (get-review-response (review-id uint))
+    (map-get? review-responses review-id)
+)
+
+(define-read-only (get-product-owner (product-id (string-ascii 64)))
+    (map-get? product-owners product-id)
+)
+
+(define-read-only (is-product-owner (product-id (string-ascii 64)) (user principal))
+    (match (map-get? product-owners product-id)
+        owner (is-eq owner user)
+        false
+    )
 )
